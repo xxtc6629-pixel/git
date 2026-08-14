@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>对弈 · 在线五子棋</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -27,6 +27,7 @@
       <div class="account-bar">
         <span>已登录：<strong id="currentAccount">—</strong></span>
         <div>
+          <a id="profileLink" class="admin-link" href="/profile">我的主页</a>
           <a id="historyLink" class="admin-link" href="/history">对局历史</a>
           <a id="adminLink" class="admin-link hidden" href="/admin">开发者管理</a>
           <button id="logoutBtn" class="text-btn">退出登录</button>
@@ -46,6 +47,33 @@
         </div>
       </form>
       <p id="lobbyError" class="error" role="alert"></p>
+    </section>
+
+    <section id="profilePage" class="profile-page hidden">
+      <header class="page-header">
+        <div><p class="eyebrow">PLAYER PROFILE</p><h1>我的主页</h1></div>
+        <a href="/" class="secondary-action admin-nav">返回首页</a>
+      </header>
+      <section class="profile-card card">
+        <div class="profile-summary">
+          <img id="profileAvatarPreview" class="profile-avatar" alt="当前头像">
+          <div>
+            <p class="label">账号</p>
+            <strong id="profileUsername">—</strong>
+          </div>
+        </div>
+        <form id="profileForm" class="profile-form">
+          <label for="profileNickname">昵称</label>
+          <input id="profileNickname" maxlength="24" placeholder="显示在对局里的名字" autocomplete="nickname">
+          <label for="profileAvatarFile">头像</label>
+          <input id="profileAvatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+          <div class="profile-actions">
+            <button id="clearAvatarBtn" type="button" class="secondary-action">清除头像</button>
+            <button type="submit" class="primary-action">保存资料</button>
+          </div>
+          <p id="profileMessage" class="admin-message" role="status"></p>
+        </form>
+      </section>
     </section>
 
     <section id="admin" class="admin-page hidden">
@@ -132,6 +160,23 @@
         <button id="leaveBtn" class="text-btn">退出房间</button>
       </header>
 
+      <div class="players-bar" aria-label="对局双方">
+        <section id="blackPlayerCard" class="player-card player-card-black" data-color="black">
+          <img id="blackAvatar" class="player-avatar" alt="黑棋头像">
+          <div class="player-copy">
+            <p id="blackName" class="player-name">等待黑棋</p>
+            <p class="player-meta"><span class="piece-mark black-piece" aria-hidden="true"></span><span>黑棋</span><span id="blackTimer" class="player-timer">--</span></p>
+          </div>
+        </section>
+        <section id="whitePlayerCard" class="player-card player-card-white" data-color="white">
+          <div class="player-copy">
+            <p id="whiteName" class="player-name">等待白棋</p>
+            <p class="player-meta"><span id="whiteTimer" class="player-timer">--</span><span>白棋</span><span class="piece-mark white-piece" aria-hidden="true"></span></p>
+          </div>
+          <img id="whiteAvatar" class="player-avatar" alt="白棋头像">
+        </section>
+      </div>
+
       <div class="board-panel">
         <div id="chatBubbles" class="chat-bubbles" aria-live="polite"></div>
         <div id="board" class="board" role="grid" aria-label="十五乘十五五子棋棋盘"></div>
@@ -143,10 +188,6 @@
           <p class="label">房间号</p>
           <div class="room-code-row"><strong id="roomCode">------</strong><button id="copyBtn" class="copy-btn">复制</button></div>
           <p id="connection" class="connection"><span></span> 正在连接</p>
-          <div class="info-grid">
-            <div><p class="label">我的棋子</p><p id="myColor">—</p></div>
-            <div><p class="label">当前回合</p><p class="turn-line"><span id="turn">—</span><span id="countdown" class="countdown">--</span></p></div>
-          </div>
           <p id="status" class="status">等待好友加入…</p>
           <button id="mobileLeaveBtn" class="mobile-leave" aria-label="退出房间">退出</button>
         </section>
@@ -159,7 +200,7 @@
           <div id="quickChats" class="quick-chats"></div>
           <div id="messages" class="messages" aria-live="polite"></div>
           <div class="mobile-compose">
-            <button id="openChatBtn" class="open-chat" aria-label="打开聊天记录">💬 <span id="unreadBadge" class="unread-badge hidden">0</span></button>
+            <button id="openChatBtn" class="open-chat" aria-label="打开聊天记录">💬</button>
             <form id="chatForm" class="chat-form">
               <input id="chatInput" maxlength="200" placeholder="说点什么…" autocomplete="off" aria-label="聊天消息">
               <button type="submit" aria-label="发送消息">发送</button>

@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import secrets
+import base64
+import binascii
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from .database import (
     list_users,
     reset_user_password,
     set_user_active,
+    update_user_profile,
 )
 from .room import room_manager
 from .websocket import handle_room_socket
@@ -35,6 +38,9 @@ from .websocket import handle_room_socket
 logger = logging.getLogger("gomoku.startup")
 FRONTEND = PROJECT_ROOT / "frontend"
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+AVATAR_PATTERN = re.compile(r"^data:image/(png|jpe?g|webp|gif);base64,", re.IGNORECASE)
+MAX_NICKNAME_LENGTH = 24
+MAX_AVATAR_BYTES = 512 * 1024
 
 
 @asynccontextmanager
@@ -82,10 +88,18 @@ class StatusPayload(BaseModel):
     is_active: bool
 
 
+class ProfilePayload(BaseModel):
+    nickname: str | None = None
+    avatar: str | None = None
+
+
 def public_user(user: User) -> dict:
     return {
         "id": user.id,
         "username": user.username,
+        "nickname": user.nickname,
+        "avatar": user.avatar,
+        "display_name": user.display_name,
         "role": user.role,
         "is_active": user.is_active,
         "created_at": user.created_at,
@@ -133,6 +147,38 @@ def validate_credentials(username: str, password: str) -> tuple[str, str]:
     return username, password
 
 
+def normalize_nickname(value: str | None) -> str | None:
+    if value is None:
+        return None
+    nickname = value.strip()
+    if not nickname:
+        return None
+    if len(nickname) > MAX_NICKNAME_LENGTH:
+        raise HTTPException(status_code=400, detail=f"昵称不能超过 {MAX_NICKNAME_LENGTH} 个字符")
+    if any(ord(char) < 32 or ord(char) == 127 for char in nickname):
+        raise HTTPException(status_code=400, detail="昵称不能包含控制字符")
+    return nickname
+
+
+def normalize_avatar(value: str | None) -> str | None:
+    if value is None:
+        return None
+    avatar = value.strip()
+    if not avatar:
+        return None
+    match = AVATAR_PATTERN.match(avatar)
+    if match is None:
+        raise HTTPException(status_code=400, detail="头像只支持 PNG、JPG、WebP 或 GIF 图片")
+    encoded = avatar.split(",", 1)[1]
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="头像图片格式无效") from exc
+    if len(raw) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=400, detail="头像图片不能超过 512KB")
+    return avatar
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok"}
@@ -157,6 +203,18 @@ async def logout(request: Request) -> dict:
 @app.get("/api/me")
 async def me(user: User = Depends(require_user)) -> dict:
     return public_user(user)
+
+
+@app.get("/api/profile")
+async def profile(user: User = Depends(require_user)) -> dict:
+    return public_user(user)
+
+
+@app.patch("/api/profile")
+async def save_profile(payload: ProfilePayload, user: User = Depends(require_user)) -> dict:
+    nickname = user.nickname if payload.nickname is None else normalize_nickname(payload.nickname)
+    avatar = user.avatar if payload.avatar is None else normalize_avatar(payload.avatar)
+    return public_user(update_user_profile(user.id, nickname, avatar))
 
 
 @app.get("/api/admin/users")
@@ -256,7 +314,7 @@ async def room_socket(websocket: WebSocket, room_id: str) -> None:
         await websocket.send_json({"type": "error", "message": "房间不存在"})
         await websocket.close(code=1008)
         return
-    await handle_room_socket(websocket, room, str(user.id), user.username)
+    await handle_room_socket(websocket, room, user)
 
 
 @app.get("/admin", include_in_schema=False)
@@ -301,6 +359,15 @@ async def history_detail_page(game_id: str, request: Request):
         raise HTTPException(status_code=404, detail="对局记录不存在")
     if not history_access_allowed(record, user):
         raise HTTPException(status_code=403, detail="无权查看这局对局")
+    return FileResponse(FRONTEND / "index.html")
+
+
+@app.get("/profile", include_in_schema=False)
+async def profile_page(request: Request):
+    try:
+        require_user(request)
+    except HTTPException:
+        return RedirectResponse("/", status_code=303)
     return FileResponse(FRONTEND / "index.html")
 
 

@@ -12,6 +12,12 @@ from backend import database
 from backend.main import app
 
 
+TINY_AVATAR = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+)
+
+
 class AuthAndAdminTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -107,13 +113,43 @@ class AuthAndAdminTests(unittest.TestCase):
         self.assertNotIn("password_hash", created)
         self.assertEqual(self.login("xiaoming", "XiaomingPass123").status_code, 200)
 
+    def test_profile_can_update_nickname_and_avatar(self):
+        self.assertEqual(self.login().status_code, 200)
+        response = self.client.patch(
+            "/api/profile",
+            json={"nickname": "棋手A", "avatar": TINY_AVATAR},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["username"], "AdminOne")
+        self.assertEqual(body["nickname"], "棋手A")
+        self.assertEqual(body["display_name"], "棋手A")
+        self.assertEqual(body["avatar"], TINY_AVATAR)
+
+        refreshed = self.client.get("/api/me").json()
+        self.assertEqual(refreshed["nickname"], "棋手A")
+        self.assertEqual(refreshed["avatar"], TINY_AVATAR)
+
     def test_authenticated_websocket_uses_session_username(self):
         self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(
+            self.client.patch(
+                "/api/profile",
+                json={"nickname": "管理员", "avatar": TINY_AVATAR},
+            ).status_code,
+            200,
+        )
         room_id = self.client.post("/api/rooms").json()["room_id"]
         with self.client.websocket_connect(f"/ws/{room_id}") as websocket:
             self.assertEqual(websocket.receive_json()["color"], "black")
             state = websocket.receive_json()
             self.assertEqual(state["player_names"]["black"], "AdminOne")
+            profile = state["player_profiles"]["black"]
+            self.assertEqual(profile["user_id"], self.client.get("/api/me").json()["id"])
+            self.assertEqual(profile["username"], "AdminOne")
+            self.assertEqual(profile["nickname"], "管理员")
+            self.assertEqual(profile["display_name"], "管理员")
+            self.assertEqual(profile["avatar"], TINY_AVATAR)
 
     def test_password_reset_invalidates_old_password(self):
         user = self.create_regular_user()

@@ -19,11 +19,15 @@ const state = {
   serverClockOffsetMs: 0,
   account: null,
   playerNames: {},
+  playerProfiles: {},
+  profileAvatarDraft: "",
+  boardGeometry: null,
 };
 
 const BOARD_POINTS = 15;
 const BOARD_INTERVALS = BOARD_POINTS - 1;
 const BOARD_INSET_RATIO = 0.05;
+const GRID_LINE_WIDTH = 1;
 
 function toast(message) {
   const node = $("#toast");
@@ -36,18 +40,14 @@ function toast(message) {
 function buildBoard() {
   const board = $("#board");
   board.innerHTML = "";
-  const insetPercent = BOARD_INSET_RATIO * 100;
-  const usablePercent = 100 - insetPercent * 2;
-  const pointSizePercent = usablePercent / BOARD_INTERVALS;
 
   for (let index = 0; index < BOARD_POINTS; index++) {
-    const position = insetPercent + index * pointSizePercent;
     const vertical = document.createElement("span");
     vertical.className = "grid-line vertical";
-    vertical.style.left = `${position}%`;
+    vertical.dataset.index = index;
     const horizontal = document.createElement("span");
     horizontal.className = "grid-line horizontal";
-    horizontal.style.top = `${position}%`;
+    horizontal.dataset.index = index;
     board.append(vertical, horizontal);
   }
 
@@ -57,9 +57,6 @@ function buildBoard() {
       cell.className = "cell";
       cell.dataset.row = row;
       cell.dataset.col = col;
-      cell.style.setProperty("--point-left", `${insetPercent + col * pointSizePercent}%`);
-      cell.style.setProperty("--point-top", `${insetPercent + row * pointSizePercent}%`);
-      cell.style.setProperty("--point-size", `${pointSizePercent}%`);
       cell.setAttribute("role", "gridcell");
       cell.setAttribute("aria-label", `第 ${row + 1} 行，第 ${col + 1} 列`);
       cell.addEventListener("click", (event) => {
@@ -76,7 +73,7 @@ function buildBoard() {
     selectIntersection(point.row, point.col);
   };
 
-  requestAnimationFrame(() => syncMobileLayout(true));
+  requestAnimationFrame(() => syncGameLayout(true));
 }
 
 function boardPointFromEvent(event, board) {
@@ -90,9 +87,62 @@ function boardPointFromEvent(event, board) {
 }
 
 function nearestBoardIndex(position, boardSize) {
-  const inset = boardSize * BOARD_INSET_RATIO;
-  const spacing = (boardSize - inset * 2) / BOARD_INTERVALS;
-  return Math.max(0, Math.min(BOARD_INTERVALS, Math.round((position - inset) / spacing)));
+  const geometry = state.boardGeometry;
+  if (geometry?.centers?.length === BOARD_POINTS && Math.abs(geometry.size - boardSize) < 2) {
+    return Math.max(0, Math.min(BOARD_INTERVALS, Math.round((position - geometry.gridLeft) / geometry.spacing)));
+  }
+  const geometryFromSize = boardGeometryForSize(boardSize);
+  return Math.max(0, Math.min(BOARD_INTERVALS, Math.round((position - geometryFromSize.gridLeft) / geometryFromSize.spacing)));
+}
+
+function boardGeometryForSize(size) {
+  const maxGridSize = Math.max(BOARD_INTERVALS, size * (1 - BOARD_INSET_RATIO * 2));
+  const gridSize = Math.max(BOARD_INTERVALS, Math.floor(maxGridSize / BOARD_INTERVALS) * BOARD_INTERVALS);
+  const spacing = gridSize / BOARD_INTERVALS;
+  const lineEdgeStart = Math.max(0, Math.round((size - gridSize - GRID_LINE_WIDTH) / 2));
+  const gridLeft = lineEdgeStart + GRID_LINE_WIDTH / 2;
+  const centers = Array.from({ length: BOARD_POINTS }, (_, index) => gridLeft + index * spacing);
+  const lineEdges = centers.map((center) => center - GRID_LINE_WIDTH / 2);
+  return {
+    size,
+    maxGridSize,
+    gridSize,
+    spacing,
+    gridLeft,
+    gridTop: gridLeft,
+    lineEdges,
+    centers,
+    pointSize: Math.max(12, spacing),
+  };
+}
+
+function syncBoardGeometry() {
+  const board = $("#board");
+  if (!board || board.clientWidth <= 0 || board.clientHeight <= 0) return;
+  const size = Math.min(board.clientWidth, board.clientHeight);
+  const geometry = boardGeometryForSize(size);
+  const first = geometry.lineEdges[0];
+  const gridLength = geometry.gridSize + GRID_LINE_WIDTH;
+
+  state.boardGeometry = geometry;
+  board.style.setProperty("--grid-start", `${first}px`);
+  board.style.setProperty("--grid-length", `${gridLength}px`);
+
+  document.querySelectorAll(".grid-line.vertical").forEach((line) => {
+    const edge = geometry.lineEdges[Number(line.dataset.index)];
+    line.style.left = `${edge}px`;
+  });
+  document.querySelectorAll(".grid-line.horizontal").forEach((line) => {
+    const edge = geometry.lineEdges[Number(line.dataset.index)];
+    line.style.top = `${edge}px`;
+  });
+  document.querySelectorAll(".cell").forEach((cell) => {
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    cell.style.setProperty("--point-left", `${geometry.centers[col]}px`);
+    cell.style.setProperty("--point-top", `${geometry.centers[row]}px`);
+    cell.style.setProperty("--point-size", `${geometry.pointSize}px`);
+  });
 }
 
 function selectIntersection(row, col) {
@@ -144,27 +194,88 @@ function colorName(color) {
   return color === "black" ? "黑棋" : color === "white" ? "白棋" : "—";
 }
 
+function displayName(user) {
+  return user?.nickname || user?.display_name || user?.username || "";
+}
+
+function escapeSvgText(value) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[char]);
+}
+
+function defaultAvatar(name, color = "black") {
+  const initial = escapeSvgText((name || colorName(color) || "棋").trim().slice(0, 1).toUpperCase());
+  const dark = color === "black";
+  const bg = dark ? "#252926" : "#f7f3ea";
+  const fg = dark ? "#fffdf7" : "#38594a";
+  const ring = dark ? "#38594a" : "#d7d1c3";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="${bg}"/><circle cx="48" cy="48" r="45" fill="none" stroke="${ring}" stroke-width="6"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" fill="${fg}" font-family="Arial, sans-serif" font-size="40" font-weight="700">${initial}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function playerForColor(color) {
+  return state.playerProfiles[color] || null;
+}
+
+function renderPlayerCards() {
+  ["black", "white"].forEach((color) => {
+    const player = playerForColor(color);
+    const name = displayName(player) || `等待${colorName(color)}`;
+    const card = $(`#${color}PlayerCard`);
+    const avatar = $(`#${color}Avatar`);
+    const nameNode = $(`#${color}Name`);
+    nameNode.textContent = name;
+    avatar.src = player?.avatar || defaultAvatar(name, color);
+    avatar.alt = `${name}头像`;
+    card.classList.toggle("is-active", state.ready && !state.finished && state.turn === color);
+    card.classList.toggle("is-mine", state.color === color);
+    card.classList.toggle("is-waiting", !player);
+    card.classList.toggle("is-offline", Boolean(player && !player.online));
+  });
+}
+
+function updateTimerNode(color, seconds) {
+  const timer = $(`#${color}Timer`);
+  timer.classList.remove("timer-warning", "timer-urgent", "timer-critical");
+  if (seconds === null) {
+    timer.textContent = "--";
+    return;
+  }
+  timer.textContent = `${seconds}s`;
+  if (seconds <= 5) timer.classList.add("timer-critical");
+  else if (seconds <= 10) timer.classList.add("timer-urgent");
+  else if (seconds <= 20) timer.classList.add("timer-warning");
+}
+
 function updateState(data) {
   const wasFinished = state.finished;
   clearPreview();
   state.ready = data.ready;
   state.turn = data.turn;
   state.playerNames = data.player_names || {};
+  state.playerProfiles = data.player_profiles || {};
   state.finished = Boolean(data.winner || data.draw);
   state.lastResult = state.finished ? { winner: data.winner, draw: data.draw, reason: data.result_reason } : null;
   if (typeof data.server_time === "number") {
     state.serverClockOffsetMs = data.server_time * 1000 - Date.now();
   }
-  syncCountdown(data.turn_deadline);
   renderBoard(data.board);
+  renderPlayerCards();
+  syncCountdown(data.turn_deadline);
 
-  const turnPlayer = state.playerNames[data.turn];
-  $("#turn").textContent = state.finished ? "已结束" : `${colorName(data.turn)}${turnPlayer ? ` · ${turnPlayer}` : ""}`;
   if (!data.ready) $("#status").textContent = "等待好友加入…";
   else if (data.winner && data.result_reason === "timeout") $("#status").textContent = `${colorName(data.turn)}超时，${colorName(data.winner)}获胜`;
   else if (data.winner) $("#status").textContent = `${colorName(data.winner)}获胜`;
   else if (data.draw) $("#status").textContent = "棋盘已满，本局平局";
-  else $("#status").textContent = data.turn === state.color ? "轮到你落子" : "等待对方落子";
+  else {
+    const turnPlayer = displayName(playerForColor(data.turn));
+    $("#status").textContent = data.turn === state.color ? "轮到你落子" : `等待${turnPlayer ? ` ${turnPlayer} ` : "对方"}落子`;
+  }
 
   if (state.finished && (!wasFinished || $("#resultOverlay").classList.contains("hidden"))) {
     showBaseResult();
@@ -213,18 +324,15 @@ function syncCountdown(deadline) {
 }
 
 function renderCountdown() {
-  const countdown = $("#countdown");
-  countdown.classList.remove("timer-warning", "timer-urgent", "timer-critical");
-  if (state.turnDeadline === null || state.finished) {
-    countdown.textContent = "--";
+  if (state.turnDeadline === null || state.finished || !state.ready) {
+    updateTimerNode("black", null);
+    updateTimerNode("white", null);
     return;
   }
   const serverNow = Date.now() + state.serverClockOffsetMs;
   const seconds = Math.max(0, Math.ceil((state.turnDeadline * 1000 - serverNow) / 1000));
-  countdown.textContent = `${seconds}s`;
-  if (seconds <= 5) countdown.classList.add("timer-critical");
-  else if (seconds <= 10) countdown.classList.add("timer-urgent");
-  else if (seconds <= 20) countdown.classList.add("timer-warning");
+  updateTimerNode("black", state.turn === "black" ? seconds : 60);
+  updateTimerNode("white", state.turn === "white" ? seconds : 60);
 }
 
 function showRematchRequest() {
@@ -267,11 +375,11 @@ function connect(roomId) {
     const data = JSON.parse(event.data);
     if (data.type === "welcome") {
       state.color = data.color;
-      $("#myColor").textContent = `${colorName(data.color)} · ${state.account.username}`;
+      renderPlayerCards();
     } else if (data.type === "state") {
       updateState(data);
     } else if (data.type === "chat") {
-      addMessage(data.color, data.message, data.username);
+      addMessage(data);
     } else if (data.type === "rematch_request") {
       clearPreview();
       showRematchRequest();
@@ -289,7 +397,7 @@ function connect(roomId) {
       state.lastResult = null;
       clearPreview();
       resetChatForNewGame();
-      $("#myColor").textContent = `${colorName(data.color)} · ${state.account.username}`;
+      renderPlayerCards();
       $("#resultOverlay").classList.add("hidden");
       toast(`新一局开始，你是${colorName(data.color)}`);
     } else if (data.type === "error") {
@@ -304,14 +412,16 @@ function connect(roomId) {
   };
 }
 
-function addMessage(color, message, username) {
+function addMessage(data) {
+  const { color, message, username } = data;
   const messages = $("#messages");
   const nearBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 56;
   const isMine = username === state.account?.username;
+  const authorName = data.display_name || data.nickname || username || colorName(color);
   const item = document.createElement("p");
   item.className = `message ${isMine ? "me" : ""}`;
   const name = document.createElement("b");
-  name.textContent = isMine ? `我（${username}）` : (username || colorName(color));
+  name.textContent = isMine ? `我（${authorName}）` : authorName;
   item.append(name, document.createTextNode(message));
   messages.appendChild(item);
   showChatBubble(isMine, message);
@@ -333,10 +443,7 @@ function showChatBubble(isMine, message) {
 }
 
 function setUnreadCount(count) {
-  state.unreadCount = count;
-  const badge = $("#unreadBadge");
-  badge.textContent = count > 99 ? "99+" : String(count);
-  badge.classList.toggle("hidden", count === 0);
+  state.unreadCount = 0;
 }
 
 function resetChatForNewGame() {
@@ -354,22 +461,30 @@ function openChatSheet() {
   requestAnimationFrame(() => {
     const messages = $("#messages");
     messages.scrollTop = messages.scrollHeight;
-    syncMobileLayout(false);
+    syncGameLayout(false);
   });
 }
 
 function closeChatSheet() {
   $(".chat-card").classList.remove("sheet-open");
   $("#chatInput").blur();
-  requestAnimationFrame(() => syncMobileLayout(false));
+  requestAnimationFrame(() => syncGameLayout(false));
 }
 
 function isMobileLayout() {
   return window.matchMedia("(max-width: 768px)").matches;
 }
 
+function syncGameLayout(forceBoardResize = false) {
+  syncMobileLayout(forceBoardResize);
+  requestAnimationFrame(syncBoardGeometry);
+}
+
 function syncMobileLayout(forceBoardResize = false) {
-  if (!isMobileLayout() || !document.body.classList.contains("game-active")) return;
+  if (!isMobileLayout() || !document.body.classList.contains("game-active")) {
+    document.documentElement.style.removeProperty("--mobile-board-size");
+    return;
+  }
   const viewport = window.visualViewport;
   const viewportHeight = viewport?.height || window.innerHeight;
   const keyboardOffset = viewport
@@ -384,13 +499,20 @@ function syncMobileLayout(forceBoardResize = false) {
 
   const inputFocused = document.activeElement === $("#chatInput");
   const keyboardOpen = Boolean(viewport && inputFocused && viewport.height < window.innerHeight * 0.82);
-  if ((keyboardOpen || sheetOpen) && state.mobileBoardSize && !forceBoardResize) return;
+  if (sheetOpen && state.mobileBoardSize && !forceBoardResize) return;
 
-  const horizontalSpace = document.documentElement.clientWidth - 16;
+  const game = $("#game");
+  const gameStyles = getComputedStyle(game);
+  const gameColumnGap = Number.parseFloat(gameStyles.rowGap || gameStyles.gap) || 0;
+  const visibleSections = keyboardOpen ? 4 : 5;
+  const layoutGap = Math.max(0, gameColumnGap * (visibleSections - 1));
+  const safeBottom = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom")) || 0;
+  const horizontalSpace = game.clientWidth;
   const roomHeight = $(".room-card").getBoundingClientRect().height;
-  const bubblesHeight = $("#chatBubbles").getBoundingClientRect().height;
+  const playersHeight = $(".players-bar").getBoundingClientRect().height;
   const hintHeight = $("#moveHint").getBoundingClientRect().height;
-  const chromeHeight = roomHeight + bubblesHeight + hintHeight + state.normalChatHeight + 28;
+  const chatHeight = chatCard.getBoundingClientRect().height || state.normalChatHeight;
+  const chromeHeight = roomHeight + playersHeight + hintHeight + chatHeight + layoutGap + safeBottom;
   const verticalSpace = viewportHeight - chromeHeight;
   const size = Math.floor(Math.max(120, Math.min(horizontalSpace, verticalSpace)));
   state.mobileBoardSize = size;
@@ -425,6 +547,7 @@ async function apiRequest(url, options = {}) {
 function hideMainSections() {
   $("#login").classList.add("hidden");
   $("#lobby").classList.add("hidden");
+  $("#profilePage").classList.add("hidden");
   $("#admin").classList.add("hidden");
   $("#historyPage").classList.add("hidden");
   $("#historyDetail").classList.add("hidden");
@@ -441,13 +564,42 @@ function showLogin() {
 
 function showLobby() {
   hideMainSections();
-  $("#currentAccount").textContent = state.account.username;
+  $("#currentAccount").textContent = displayName(state.account) || state.account.username;
   $("#adminLink").classList.toggle("hidden", state.account.role !== "developer");
   $("#lobby").classList.remove("hidden");
   const hashRoom = location.hash.slice(1).toUpperCase();
   if (/^[A-Z0-9]{6}$/.test(hashRoom)) {
     roomExists(hashRoom).then((exists) => exists ? connect(hashRoom) : toast("分享的房间不存在"));
   }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("无法读取头像文件"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderProfileForm(profile) {
+  state.profileAvatarDraft = profile.avatar || "";
+  $("#profileUsername").textContent = profile.username;
+  $("#profileNickname").value = profile.nickname || "";
+  $("#profileAvatarPreview").src = profile.avatar || defaultAvatar(displayName(profile) || profile.username, "black");
+  $("#profileAvatarPreview").alt = `${displayName(profile) || profile.username}头像`;
+  $("#profileAvatarFile").value = "";
+  $("#profileMessage").textContent = "";
+  $("#profileMessage").classList.remove("error-message");
+}
+
+async function showProfile() {
+  hideMainSections();
+  document.body.classList.remove("game-active");
+  $("#profilePage").classList.remove("hidden");
+  const profile = await apiRequest("/api/profile");
+  state.account = profile;
+  renderProfileForm(profile);
 }
 
 async function showAdmin() {
@@ -658,6 +810,8 @@ async function bootstrapAuth() {
       await showHistoryDetail(decodeURIComponent(location.pathname.slice("/history/".length)));
     } else if (location.pathname === "/history") {
       await showHistory();
+    } else if (location.pathname === "/profile") {
+      await showProfile();
     } else {
       showLobby();
     }
@@ -789,6 +943,65 @@ $("#loginForm").addEventListener("submit", async (event) => {
   }
 });
 
+$("#profileAvatarFile").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const message = $("#profileMessage");
+  message.textContent = "";
+  message.classList.remove("error-message");
+  if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) {
+    message.textContent = "头像只支持 PNG、JPG、WebP 或 GIF 图片";
+    message.classList.add("error-message");
+    event.target.value = "";
+    return;
+  }
+  if (file.size > 512 * 1024) {
+    message.textContent = "头像图片不能超过 512KB";
+    message.classList.add("error-message");
+    event.target.value = "";
+    return;
+  }
+  try {
+    state.profileAvatarDraft = await fileToDataUrl(file);
+    $("#profileAvatarPreview").src = state.profileAvatarDraft;
+  } catch (error) {
+    message.textContent = error.message;
+    message.classList.add("error-message");
+  }
+});
+
+$("#clearAvatarBtn").addEventListener("click", () => {
+  state.profileAvatarDraft = "";
+  const name = $("#profileNickname").value.trim() || state.account?.username || "棋";
+  $("#profileAvatarPreview").src = defaultAvatar(name, "black");
+  $("#profileAvatarFile").value = "";
+});
+
+$("#profileForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = event.currentTarget.querySelector("button[type=submit]");
+  const message = $("#profileMessage");
+  submit.disabled = true;
+  message.textContent = "";
+  message.classList.remove("error-message");
+  try {
+    state.account = await apiRequest("/api/profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        nickname: $("#profileNickname").value,
+        avatar: state.profileAvatarDraft,
+      }),
+    });
+    renderProfileForm(state.account);
+    message.textContent = "资料已保存";
+  } catch (error) {
+    message.textContent = error.message;
+    message.classList.add("error-message");
+  } finally {
+    submit.disabled = false;
+  }
+});
+
 $("#createUserForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -864,9 +1077,13 @@ $("#closeChatBtn").addEventListener("click", closeChatSheet);
 $("#roomInput").addEventListener("input", (event) => {
   event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 });
+$("#chatInput").addEventListener("focus", () => setTimeout(() => syncGameLayout(true), 80));
+$("#chatInput").addEventListener("blur", () => setTimeout(() => syncGameLayout(true), 80));
 
-window.addEventListener("resize", () => requestAnimationFrame(() => syncMobileLayout(false)));
-window.addEventListener("orientationchange", () => setTimeout(() => syncMobileLayout(true), 120));
-window.visualViewport?.addEventListener("resize", () => requestAnimationFrame(() => syncMobileLayout(false)));
+window.addEventListener("load", () => requestAnimationFrame(() => syncGameLayout(true)));
+window.addEventListener("resize", () => requestAnimationFrame(() => syncGameLayout(false)));
+window.addEventListener("orientationchange", () => setTimeout(() => syncGameLayout(true), 120));
+window.visualViewport?.addEventListener("resize", () => requestAnimationFrame(() => syncGameLayout(false)));
+window.visualViewport?.addEventListener("scroll", () => requestAnimationFrame(() => syncGameLayout(false)));
 
 bootstrapAuth();

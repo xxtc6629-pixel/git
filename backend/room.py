@@ -24,6 +24,23 @@ class Player:
     color: Color
     websocket: WebSocket | None = None
     user_id: int | None = None
+    nickname: str | None = None
+    avatar: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        return self.nickname or self.username
+
+    def public_profile(self) -> dict:
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "nickname": self.nickname,
+            "avatar": self.avatar,
+            "display_name": self.display_name,
+            "color": self.color,
+            "online": self.websocket is not None,
+        }
 
 
 @dataclass
@@ -43,11 +60,21 @@ class Room:
     moves: list[dict] = field(default_factory=list)
     history_persisted: bool = False
 
-    async def connect(self, client_id: str, username: str, websocket: WebSocket) -> Color | None:
+    async def connect(
+        self,
+        client_id: str,
+        username: str,
+        websocket: WebSocket,
+        nickname: str | None = None,
+        avatar: str | None = None,
+    ) -> Color | None:
         async with self.lock:
             existing = self.players.get(client_id)
             if existing:
                 existing.websocket = websocket
+                existing.username = username
+                existing.nickname = nickname
+                existing.avatar = avatar
                 return existing.color
             if len(self.players) >= 2:
                 return None
@@ -55,7 +82,7 @@ class Room:
             used = {player.color for player in self.players.values()}
             color: Color = "black" if "black" not in used else "white"
             user_id = int(client_id) if client_id.isdigit() else None
-            self.players[client_id] = Player(client_id, username, color, websocket, user_id)
+            self.players[client_id] = Player(client_id, username, color, websocket, user_id, nickname, avatar)
             if self.ready and not was_ready:
                 self._begin_game()
             if self.ready and not self.game.finished and self.turn_deadline is None:
@@ -86,6 +113,7 @@ class Room:
             "turn_deadline": self.turn_deadline,
             "server_time": time.time(),
             "player_names": {player.color: player.username for player in self.players.values()},
+            "player_profiles": {player.color: player.public_profile() for player in self.players.values()},
             **self.game.snapshot(),
         }
 

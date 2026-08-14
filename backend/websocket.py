@@ -1,12 +1,14 @@
 from fastapi import WebSocket, WebSocketDisconnect
 
+from .database import User
 from .game import GameError
 from .room import Room
 
 
-async def handle_room_socket(websocket: WebSocket, room: Room, client_id: str, username: str) -> None:
+async def handle_room_socket(websocket: WebSocket, room: Room, user: User) -> None:
     await websocket.accept()
-    color = await room.connect(client_id, username, websocket)
+    client_id = str(user.id)
+    color = await room.connect(client_id, user.username, websocket, user.nickname, user.avatar)
     if color is None:
         await websocket.send_json({"type": "error", "message": "房间已满"})
         await websocket.close(code=1008)
@@ -44,7 +46,10 @@ async def handle_room_socket(websocket: WebSocket, room: Room, client_id: str, u
                     await room.broadcast({
                         "type": "chat",
                         "color": room.color_of(client_id),
-                        "username": username,
+                        "username": user.username,
+                        "nickname": user.nickname,
+                        "avatar": user.avatar,
+                        "display_name": user.display_name,
                         "message": text[:200],
                     })
             elif message_type == "rematch_request":

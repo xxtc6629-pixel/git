@@ -31,6 +31,12 @@ class User:
     role: str
     is_active: bool
     created_at: str
+    nickname: str | None = None
+    avatar: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        return self.nickname or self.username
 
 
 @contextmanager
@@ -60,6 +66,11 @@ def initialize_database() -> None:
             )
             """
         )
+        user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)")}
+        if "nickname" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN nickname TEXT")
+        if "avatar" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS game_history (
@@ -142,19 +153,22 @@ def verify_password(password: str, password_hash: str) -> bool:
 def _user_from_row(row: sqlite3.Row | None) -> User | None:
     if row is None:
         return None
+    keys = set(row.keys())
     return User(
         id=row["id"],
         username=row["username"],
         role=row["role"],
         is_active=bool(row["is_active"]),
         created_at=row["created_at"],
+        nickname=row["nickname"] if "nickname" in keys else None,
+        avatar=row["avatar"] if "avatar" in keys else None,
     )
 
 
 def get_user_by_id(user_id: int) -> User | None:
     with _connect() as connection:
         row = connection.execute(
-            "SELECT id, username, role, is_active, created_at FROM users WHERE id = ?",
+            "SELECT id, username, nickname, avatar, role, is_active, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return _user_from_row(row)
@@ -163,7 +177,7 @@ def get_user_by_id(user_id: int) -> User | None:
 def get_user_by_username(username: str) -> User | None:
     with _connect() as connection:
         row = connection.execute(
-            "SELECT id, username, role, is_active, created_at FROM users WHERE username = ?",
+            "SELECT id, username, nickname, avatar, role, is_active, created_at FROM users WHERE username = ?",
             (username,),
         ).fetchone()
     return _user_from_row(row)
@@ -172,7 +186,7 @@ def get_user_by_username(username: str) -> User | None:
 def authenticate_user(username: str, password: str) -> User | None:
     with _connect() as connection:
         row = connection.execute(
-            "SELECT id, username, password_hash, role, is_active, created_at FROM users WHERE username = ?",
+            "SELECT id, username, nickname, avatar, password_hash, role, is_active, created_at FROM users WHERE username = ?",
             (username,),
         ).fetchone()
     if row is None or not bool(row["is_active"]):
@@ -202,9 +216,23 @@ def create_user(username: str, password: str, role: str = "user") -> User:
 def list_users() -> list[User]:
     with _connect() as connection:
         rows = connection.execute(
-            "SELECT id, username, role, is_active, created_at FROM users ORDER BY created_at, id"
+            "SELECT id, username, nickname, avatar, role, is_active, created_at FROM users ORDER BY created_at, id"
         ).fetchall()
     return [_user_from_row(row) for row in rows]
+
+
+def update_user_profile(user_id: int, nickname: str | None, avatar: str | None) -> User:
+    with _connect() as connection:
+        cursor = connection.execute(
+            "UPDATE users SET nickname = ?, avatar = ? WHERE id = ?",
+            (nickname, avatar, user_id),
+        )
+    if cursor.rowcount != 1:
+        raise LookupError("账号不存在")
+    updated = get_user_by_id(user_id)
+    if updated is None:
+        raise LookupError("账号不存在")
+    return updated
 
 
 def reset_user_password(user_id: int, password: str) -> bool:
@@ -219,7 +247,7 @@ def reset_user_password(user_id: int, password: str) -> bool:
 def set_user_active(user_id: int, is_active: bool) -> User:
     with _connect() as connection:
         row = connection.execute(
-            "SELECT id, username, role, is_active, created_at FROM users WHERE id = ?",
+            "SELECT id, username, nickname, avatar, role, is_active, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         user = _user_from_row(row)
