@@ -1,0 +1,1 @@
+"""Gomoku backend package."""

@@ -1,0 +1,18 @@
+services:
+  gomoku:
+    build: .
+    container_name: gomoku-game
+    restart: unless-stopped
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-Lxn}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?请在 .env 中设置初始开发者密码}
+      SESSION_SECRET: ${SESSION_SECRET:?请在 .env 中设置 Session 密钥}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DATABASE_PATH: /data/gomoku.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - gomoku-data:/data
+
+volumes:
+  gomoku-data:

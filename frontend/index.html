@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <title>对弈 · 在线五子棋</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <section id="login" class="login card hidden">
+      <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p class="eyebrow">GOMOKU · PRIVATE MATCH</p>
+      <h1>登录后，开始对弈。</h1>
+      <p class="intro">使用开发者为你创建的游戏账号登录。</p>
+      <form id="loginForm" class="auth-form">
+        <label for="loginUsername">账号</label>
+        <input id="loginUsername" name="username" autocomplete="username" maxlength="32" required>
+        <label for="loginPassword">密码</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" maxlength="72" required>
+        <button type="submit" class="primary"><span>登录</span><span>→</span></button>
+      </form>
+      <p id="loginError" class="error" role="alert"></p>
+    </section>
+
+    <section id="lobby" class="lobby card hidden">
+      <div class="account-bar">
+        <span>已登录：<strong id="currentAccount">—</strong></span>
+        <div>
+          <a id="historyLink" class="admin-link" href="/history">对局历史</a>
+          <a id="adminLink" class="admin-link hidden" href="/admin">开发者管理</a>
+          <button id="logoutBtn" class="text-btn">退出登录</button>
+        </div>
+      </div>
+      <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p class="eyebrow">GOMOKU · 15 × 15</p>
+      <h1>和朋友，下一盘棋。</h1>
+      <p class="intro">创建一个房间，把六位房间号发给朋友。无需注册，打开浏览器即可对弈。</p>
+      <button id="createBtn" class="primary">创建新房间 <span>→</span></button>
+      <div class="divider"><span>或加入已有房间</span></div>
+      <form id="joinForm">
+        <label for="roomInput">房间号</label>
+        <div class="join-row">
+          <input id="roomInput" maxlength="6" autocomplete="off" placeholder="例如 ABC123" required>
+          <button type="submit" class="secondary">加入</button>
+        </div>
+      </form>
+      <p id="lobbyError" class="error" role="alert"></p>
+    </section>
+
+    <section id="admin" class="admin-page hidden">
+      <header class="admin-header">
+        <div><p class="eyebrow">DEVELOPER CONSOLE</p><h1>账号管理</h1></div>
+        <div><a href="/admin/history" class="secondary-action admin-nav">全部对局</a><a href="/" class="secondary-action admin-nav">返回游戏</a><button id="adminLogoutBtn" class="text-btn">退出登录</button></div>
+      </header>
+      <section class="admin-create card">
+        <h2>创建普通账号</h2>
+        <form id="createUserForm" class="admin-form">
+          <input id="newUsername" maxlength="32" placeholder="用户名" autocomplete="off" required>
+          <input id="newPassword" type="password" maxlength="72" placeholder="初始密码（至少8位）" autocomplete="new-password" required>
+          <button type="submit" class="primary-action">创建账号</button>
+        </form>
+        <p id="adminMessage" class="admin-message" role="status"></p>
+      </section>
+      <section class="admin-users card">
+        <div class="admin-list-title"><h2>已有账号</h2><button id="refreshUsersBtn" class="text-btn">刷新</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="userTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="historyPage" class="history-page hidden">
+      <header class="page-header">
+        <div><p class="eyebrow">MATCH ARCHIVE</p><h1>对局历史</h1></div>
+        <a href="/" class="secondary-action admin-nav">返回首页</a>
+      </header>
+      <div id="historyStats" class="history-stats"></div>
+      <div id="historyList" class="history-list" aria-live="polite"></div>
+      <p id="historyEmpty" class="empty-state hidden">还没有已完成的对局。</p>
+    </section>
+
+    <section id="historyDetail" class="history-page history-detail hidden">
+      <header class="page-header">
+        <div><p class="eyebrow">MATCH DETAIL</p><h1>对局详情</h1></div>
+        <a id="historyBackLink" href="/history" class="secondary-action admin-nav">返回历史</a>
+      </header>
+      <section class="history-detail-summary card">
+        <div id="historyMeta" class="detail-meta"></div>
+      </section>
+      <div class="history-detail-grid">
+        <section class="history-board-card card">
+          <h2>最终棋盘</h2>
+          <div id="historyBoard" class="history-board" role="img" aria-label="本局结束时的只读棋盘"></div>
+        </section>
+        <section class="move-log-card card">
+          <h2>落子记录</h2>
+          <ol id="historyMoves" class="move-log"></ol>
+        </section>
+      </div>
+    </section>
+
+    <section id="adminHistory" class="history-page hidden">
+      <header class="page-header">
+        <div><p class="eyebrow">DEVELOPER · MATCH ARCHIVE</p><h1>全部对局</h1></div>
+        <a href="/admin" class="secondary-action admin-nav">返回账号管理</a>
+      </header>
+      <form id="historyFilterForm" class="history-filters card">
+        <input id="historyUsernameFilter" placeholder="用户名" autocomplete="off">
+        <input id="historyRoomFilter" placeholder="房间号" maxlength="6" autocomplete="off">
+        <select id="historyReasonFilter">
+          <option value="">全部结束方式</option>
+          <option value="five_in_a_row">五连</option>
+          <option value="timeout">超时</option>
+          <option value="draw">平局</option>
+          <option value="resign">认输</option>
+        </select>
+        <input id="historyDateFrom" type="date" aria-label="开始日期">
+        <input id="historyDateTo" type="date" aria-label="结束日期">
+        <button class="primary-action" type="submit">查询</button>
+      </form>
+      <div id="adminHistoryList" class="history-list" aria-live="polite"></div>
+      <p id="adminHistoryEmpty" class="empty-state hidden">没有符合条件的对局。</p>
+    </section>
+
+    <section id="game" class="game hidden">
+      <header class="game-header">
+        <div><p class="eyebrow">LIVE MATCH</p><h1>五子棋</h1></div>
+        <button id="leaveBtn" class="text-btn">退出房间</button>
+      </header>
+
+      <div class="board-panel">
+        <div id="chatBubbles" class="chat-bubbles" aria-live="polite"></div>
+        <div id="board" class="board" role="grid" aria-label="十五乘十五五子棋棋盘"></div>
+        <p id="moveHint" class="move-hint" aria-live="polite"></p>
+      </div>
+
+      <aside class="sidebar">
+        <section class="room-card card">
+          <p class="label">房间号</p>
+          <div class="room-code-row"><strong id="roomCode">------</strong><button id="copyBtn" class="copy-btn">复制</button></div>
+          <p id="connection" class="connection"><span></span> 正在连接</p>
+          <div class="info-grid">
+            <div><p class="label">我的棋子</p><p id="myColor">—</p></div>
+            <div><p class="label">当前回合</p><p class="turn-line"><span id="turn">—</span><span id="countdown" class="countdown">--</span></p></div>
+          </div>
+          <p id="status" class="status">等待好友加入…</p>
+          <button id="mobileLeaveBtn" class="mobile-leave" aria-label="退出房间">退出</button>
+        </section>
+
+        <section class="chat-card card">
+          <div class="chat-title">
+            <h2>对局聊天</h2>
+            <button id="closeChatBtn" class="sheet-close" aria-label="关闭聊天记录">×</button>
+          </div>
+          <div id="quickChats" class="quick-chats"></div>
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <div class="mobile-compose">
+            <button id="openChatBtn" class="open-chat" aria-label="打开聊天记录">💬 <span id="unreadBadge" class="unread-badge hidden">0</span></button>
+            <form id="chatForm" class="chat-form">
+              <input id="chatInput" maxlength="200" placeholder="说点什么…" autocomplete="off" aria-label="聊天消息">
+              <button type="submit" aria-label="发送消息">发送</button>
+            </form>
+          </div>
+        </section>
+      </aside>
+
+      <div id="resultOverlay" class="result-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+        <div class="result-modal">
+          <div id="resultIcon" class="result-icon" aria-hidden="true">●</div>
+          <h2 id="resultTitle">本局结束</h2>
+          <p id="resultText"></p>
+          <div id="resultActions" class="modal-actions">
+            <button id="rematchBtn" class="primary-action">再来一局</button>
+            <button id="resultExitBtn" class="secondary-action">退出房间</button>
+          </div>
+          <div id="rematchDecision" class="modal-actions hidden">
+            <button id="acceptRematchBtn" class="primary-action">接受</button>
+            <button id="declineRematchBtn" class="secondary-action">拒绝</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
